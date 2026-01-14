@@ -30,8 +30,8 @@ except Exception:
     cachetools.TTLCache = _TTLCache
     sys.modules["cachetools"] = cachetools
 
-from shared_metadata_registry import EntityRegistry
-from shared_metadata_schema import EntityID, EntityRelationship, EntityType
+from foip.shared_metadata_registry import EntityRegistry
+from foip.shared_metadata_schema import EntityID, EntityRelationship, EntityType
 
 
 class FakeConn:
@@ -125,8 +125,8 @@ async def test_add_and_find_relationship_cached():
 import asyncio
 from datetime import datetime, timezone
 
-from shared_metadata_registry import EntityRegistry
-from shared_metadata_schema import EntityID, EntityRelationship, EntityType
+from foip.shared_metadata_registry import EntityRegistry
+from foip.shared_metadata_schema import EntityID, EntityRelationship, EntityType
 
 
 class FakeConn:

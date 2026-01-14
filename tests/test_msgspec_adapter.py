@@ -2,9 +2,14 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from foip_msgspec_adapter import decode_attrs, encode_attrs
-from shared_metadata_schema import (EntityID, EntityType, FormType, SECFiling,
-                                    TimePoint)
+from foip.foip_msgspec_adapter import decode_attrs, encode_attrs
+from foip.shared_metadata_schema import (
+    EntityID,
+    EntityType,
+    FormType,
+    SECFiling,
+    TimePoint,
+)
 
 
 def test_roundtrip_secfiling_nested():

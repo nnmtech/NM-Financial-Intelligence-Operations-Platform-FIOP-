@@ -47,14 +47,24 @@ class RunStatus(str, Enum):
     COMPLETED = "completed"
 
 
-# TimePoint is a simple alias for datetime used across the codebase
-TimePoint = datetime
+@attr.define(kw_only=True)
+class TimePoint:
+    """Represents a time point used across the codebase.
+
+    Provide both `effective_date` (used by tests) and optional
+    `source_timestamp`/`recorded_date` to be compatible with different call sites.
+    """
+    effective_date: Optional[datetime] = None
+    source_timestamp: Optional[datetime] = None
+    recorded_date: Optional[datetime] = None
 
 
 @attr.define(kw_only=True)
 class Company:
     entity_id: EntityID
     name: str
+    ticker: Optional[str] = None
+    cik: Optional[str] = None
 
 
 @attr.define(kw_only=True)
@@ -72,14 +82,39 @@ class BankTransaction:
     metadata: Dict[str, Any] = attr.field(factory=dict)
 
 
-@attr.define
 class SECFiling:
-    filing_id: str
-    company: Company
-    form_type: FormType
-    filed_at: datetime
-    raw_text: Optional[str] = None
-    metadata: Dict[str, Any] = attr.field(factory=dict)
+    """Flexible SECFiling container accepting extra keyword fields.
+
+    This class intentionally accepts arbitrary keywords from different
+    data sources and places unknown keys into the `metadata` dict so
+    callers that construct SECFiling with extra fields (e.g. from
+    parsers) don't raise errors.
+    """
+
+    def __init__(self, *args, **kwargs):
+        # Known required fields - pop them, leaving extras for metadata
+        self.entity_id: EntityID = kwargs.pop("entity_id")
+        self.timepoint: TimePoint = kwargs.pop("timepoint")
+        self.form_type: FormType = kwargs.pop("form_type")
+        self.filing_date: datetime = kwargs.pop("filing_date")
+        self.period_end_date: datetime = kwargs.pop("period_end_date")
+        self.accession_number: str = kwargs.pop("accession_number")
+
+        # Optional known fields
+        self.amount: Optional[float] = kwargs.pop("amount", None)
+        self.currency: Optional[str] = kwargs.pop("currency", None)
+        self.description: Optional[str] = kwargs.pop("description", None)
+        self.file_number: Optional[str] = kwargs.pop("file_number", None)
+        self.sections: Optional[Any] = kwargs.pop("sections", None)
+
+        # Remaining fields are stored in metadata for later inspection
+        self.metadata: Dict[str, Any] = kwargs.pop("metadata", {})
+        # include any truly unexpected extras into metadata as well
+        if kwargs:
+            self.metadata.update(kwargs)
+
+    def __repr__(self) -> str:  # pragma: no cover - small helper
+        return f"SECFiling({self.accession_number!r})"
 
 
 @attr.define

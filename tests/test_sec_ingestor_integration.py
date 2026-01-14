@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from aiohttp import web
 
-from finscan_sec_ingestor import SECIngestor
+from foip.finscan_sec_ingestor import SECIngestor
 
 
 class FakeRegistry:
