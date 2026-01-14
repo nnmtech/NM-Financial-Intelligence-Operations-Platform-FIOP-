@@ -48,15 +48,24 @@ services:
         condition: service_started
     environment:
       PYTHONPATH: /app/src
-      # The application supports reading secrets from files pointed to by *_FILE env vars.
-      DATABASE_URL: postgres://${POSTGRES_USER:-fiop_user}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-fiop}
+      # Prefer file-backed secret pattern. The application will prefer POSTGRES_PASSWORD_FILE
+      # over POSTGRES_PASSWORD when constructing the DATABASE_URL at runtime.
+      POSTGRES_DB: ${POSTGRES_DB:-fiop}
+      POSTGRES_USER: ${POSTGRES_USER:-fiop_user}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-/run/secrets/postgres_password}
       REDIS_URL: redis://redis:6379/0
       SEC_API_KEY_FILE: ${SEC_API_KEY_FILE:-/run/secrets/sec_api_key}
       WORM_STORAGE_PATH: /app/data/worm
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Metrics security: set a strong token in production and restrict allowlist
+      # Health & Metrics security: set strong tokens and restrict allowlists in production
+      HEALTH_BEARER_TOKEN: ${HEALTH_BEARER_TOKEN:-}
+      HEALTH_ALLOWLIST: ${HEALTH_ALLOWLIST:-127.0.0.1,::1}
       METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
       METRICS_ALLOWLIST: ${METRICS_ALLOWLIST:-127.0.0.1,::1}
+      # OpenTelemetry / Tracing
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-foip}
     volumes:
       - ./:/app:ro
       - fiop_logs:/app/logs
@@ -68,7 +77,12 @@ services:
     command: ["python", "-m", "src.main"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3); sys.exit(0 if getattr(r, 'status', None)==200 else 1)\""]
+      # Use an HTTP readiness probe against the application's `/health` endpoint.
+      # Supports optional bearer token via `HEALTH_BEARER_TOKEN` env var.
+      test: ["CMD-SHELL", "python -c \"import os,sys,urllib.request; req=urllib.request.Request('http://127.0.0.1:8000/health'); t=os.environ.get('HEALTH_BEARER_TOKEN');\
+    if t: req.add_header('Authorization','Bearer '+t);\
+    try: r=urllib.request.urlopen(req, timeout=3); sys.exit(0 if getattr(r, 'status', None)==200 else 1)\
+    except: sys.exit(1)\""]
       interval: 30s
       timeout: 5s
       retries: 5
