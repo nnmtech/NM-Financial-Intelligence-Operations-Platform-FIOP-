@@ -1,0 +1,13 @@
+__pycache__
+.venv
+.pytest_cache
+.mypy_cache
+dist
+build
+*.pyc
+FOIP_backup_v1.tar.gz*
+backup_v1
+.git
+.DS_Store
+.env
+secrets

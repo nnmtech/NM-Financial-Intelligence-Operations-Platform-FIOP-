@@ -1,0 +1,46 @@
+[ingest]
+# Polling interval in seconds between ingestion runs (float allowed)
+poll_interval = 60.0
+
+[backup]
+# Example remote target (S3/GCS) - leave blank in example
+remote_target = ""
+# Keep N encrypted backups (rotation)
+keep = 7
+
+# If you want the script to perform encryption, set FOIP_DO_ENCRYPT=yes
+# and provide FOIP_BACKUP_PASSPHRASE via your secret manager / env.
+
+[gate]
+# Controls behavior of the health gate script
+# If FOIP_GATE_CREATE_ISSUE=yes and FOIP_GITHUB_TOKEN is present, the gate
+# scaffold may open an issue on failures (scaffold only; not enabled here).
+create_issue = false
+
+[staging]
+# If FOIP_DO_UPLOAD=yes and FOIP_UPLOAD_TARGET is set, the staging publisher
+# will attempt to upload the artifact. Example targets: s3://bucket/path,
+# file:///absolute/path
+do_upload = false
+upload_target = ""
+
+[reconcile]
+# If FOIP_DO_RECONCILE=yes the script may attempt fixes (not implemented by default)
+do_reconcile = false
+
+[feature_extract]
+# If FOIP_DO_EXTRACT=yes the feature extractor will write feature files.
+do_extract = false
+out_dir = "out/features"
+
+[auto_remediate]
+# If FOIP_DO_REMEDIATE=yes the scaffold will run formatters/linters (local only)
+do_remediate = false
+
+[webhook]
+# Configure the webhook listener host/port and optional secret header
+host = "127.0.0.1"
+port = 8080
+# If set, incoming webhook must include header `X-FOIP-SIGN: <secret>`
+secret = ""
+

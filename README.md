@@ -1,4 +1,80 @@
+# FOIP — Package & Automation Summary
+
+This repository contains the FOIP Python package (authoritative code under `src/foip`) and a set of small, reviewed scaffolds for autonomous tasks used during development, staging, and operations.
+
+Key components
+- Package: `src/foip` — typed package with `py.typed`, domain models, ingestion, registry, and storage abstractions.
+- Tests & typing: `pytest` tests and `mypy` configuration; package is kept green by running typechecks and tests.
+- Scripts: a `scripts/` folder with safe, dry-run-first scaffolds for common automation tasks.
+
+Provided automation scaffolds (dry-run / safe by default)
+- `scripts/ingest_worker.py` — periodic async SEC ingestor (polls EDGAR, calls package ingestor).  
+- `scripts/backup_rotate.py` — create workspace tar, optional OpenSSL encryption, rotate encrypted archives.  
+- `scripts/health_gate.py` — run `mypy`, `pytest`, smoke import; prints JSON summary for CI gates.  
+- `scripts/staging_publish.py` — build `dist/foip-staging.tar.gz`, compute SHA256, optional upload (S3/file).  
+- `scripts/registry_reconciler.py` — compare external vendor IDs vs local registry and report mismatches.  
+- `scripts/feature_extract.py` — deterministic ML feature extractor for filings (writes JSON feature records).  
+- `scripts/auto_remediate.py` — detect failing tests and suggest (or optionally attempt) small autofixes (format/lint).  
+- `scripts/webhook_listener.py` — aiohttp webhook receiver that schedules background handlers (ingest/event triggers).
+
+How to run checks locally
+```bash
+PYTHONPATH=src python -m mypy src/foip
+PYTHONPATH=src pytest -q --ignore=backup_v1
+```
+
+Script usage notes
+- All scripts are non-destructive by default; enable behavior via environment variables (see `scripts/config.toml.example`).  
+- Secrets (passphrases, tokens) must be provided via a secret manager or CI secret injection — never commit secrets to the repo.  
+
+Release & backups
+- A verified, encrypted backup `FOIP_backup_v1.tar.gz.enc` and its checksum are present in the working tree; encrypted backups are verified against the recorded checksum before plaintext artifacts are removed.
+
+VCS policy
+- A cleanup branch and annotated tag for the cleaned package state exist; no further commits or pushes are performed without explicit approval.
+
+If you want, I can:
+- display any scaffold file inline for review, or
+- create a repository-level CI workflow (GitHub Actions) that runs `health_gate` and stages artifacts.
 FOIP recommended stack and best-practices
+
+Local Docker build & run (with file-backed secrets)
+-----------------------------------------------
+
+Build the image locally and run `docker-compose` using file-backed secrets:
+
+1. Build the image:
+
+```bash
+docker build -t foip:latest -f Dockerfile .
+```
+
+2. Create a temporary `secrets/` directory with your secret files (mode 600):
+
+```bash
+mkdir -p secrets
+printf "%s" "<POSTGRES_PASSWORD>" > secrets/postgres_password
+printf "%s" "<SEC_API_KEY>" > secrets/sec_api_key
+chmod 600 secrets/*
+```
+
+3. Start services with docker-compose (the compose file uses file-backed secrets):
+
+```bash
+docker compose up --build -d
+```
+
+4. When finished, teardown and remove secrets:
+
+```bash
+docker compose down
+rm -rf secrets
+```
+
+Notes:
+- For CI / production, write these secrets from your secret manager into temporary files (the GitHub Actions workflow `deploy-with-secrets.yml` demonstrates this pattern).
+- Do NOT commit the `secrets/` directory or `.env` into the repository.
+
 
 This workspace follows the project's documented best-practices:
 

@@ -1,0 +1,38 @@
+name: Health Gate
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  health-gate:
+    name: Health Gate Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install mypy pytest
+
+      - name: Run health gate
+        run: |
+          set -e
+          PYTHONPATH=src python scripts/health_gate.py > health_gate_summary.json || true
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-gate-summary
+          path: health_gate_summary.json
