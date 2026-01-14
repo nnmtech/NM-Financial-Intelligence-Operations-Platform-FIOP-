@@ -1,10 +1,11 @@
+from __future__ import annotations
+
 """Lightweight storage helper with a concrete WORMStorage implementation.
 
 This module provides a small file-backed WORMStorage used for local
 smoke tests and development. It intentionally avoids external
 dependencies and is not intended for production use.
 """
-from __future__ import annotations
 
 from typing import Any, Optional
 from pathlib import Path
