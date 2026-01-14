@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: no-datetime-utcnow
+        name: Disallow datetime.utcnow()
+        entry: python3 scripts/check_no_datetime_utcnow.py
+        language: system
+        files: \.(py)$
+        stages: [commit, push]
+      - id: require-attr-asdict-register-entity
+        name: Require attr.asdict() on register_entity payloads
+        entry: python3 scripts/check_register_entity_attr_asdict.py
+        language: system
+        files: \\.(py)$
+        stages: [commit, push]
