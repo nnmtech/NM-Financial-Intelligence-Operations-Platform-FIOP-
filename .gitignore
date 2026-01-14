@@ -1,0 +1,17 @@
+
+backup_v1/
+old_top_level_backup/
+shared_metadata_schema1.py
+shared_metadata_schema.py.py
+foip_infra.py
+foip_msgspec_adapter.py
+finscan_maker_core.py
+finscan_sec_ingestor.py
+shared_metadata_registry.py
+shared_storage_worm.py
+operations_reconciliation_core.py
+__pycache__/
+*.pyc
+FOIP_backup_v1.passphrase
+FOIP_backup_v1.tar.gz
+FOIP_backup_v1.tar.gz*

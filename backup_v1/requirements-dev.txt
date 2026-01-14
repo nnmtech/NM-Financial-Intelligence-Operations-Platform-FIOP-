@@ -1,8 +1,0 @@
-# Development dependencies for type checking and linters
-mypy>=1.7.0
-types-cachetools
-types-aiofiles
-types-redis
-types-urllib3
-# Optional: add more types if mypy reports additional missing stubs
-# Install with: python -m pip install -r requirements-dev.txt
