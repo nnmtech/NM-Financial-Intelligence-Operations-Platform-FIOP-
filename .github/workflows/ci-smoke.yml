@@ -1,0 +1,63 @@
+name: CI Smoke Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t foip:ci -f Dockerfile .
+
+      - name: Run smoke container
+        run: |
+          docker run --name foip_smoke_ci -d -e SMOKE_MODE=1 -e HEALTH_BEARER_TOKEN=smoketok -e METRICS_BEARER_TOKEN=smoketok foip:ci
+
+      - name: Probe endpoints (inside container)
+        run: |
+          set -euo pipefail
+          # wait for health up to ~60s
+          for i in $(seq 1 30); do
+            out=$(docker exec foip_smoke_ci bash -lc 'curl -sS -H "Authorization: Bearer smoketok" -w "%{http_code}" http://localhost:8000/health' || true)
+            code=${out: -3}
+            body=${out:: -3}
+            echo "health attempt $i code=$code"
+            if [ "$code" = "200" ]; then
+              echo "health OK"
+              break
+            fi
+            sleep 2
+          done
+
+          # metrics
+          docker exec foip_smoke_ci bash -lc 'curl -sS -H "Authorization: Bearer smoketok" -w "%{http_code}" -o /tmp/metrics.out http://localhost:8000/metrics' || true
+
+          # readiness (no auth expected)
+          docker exec foip_smoke_ci bash -lc 'curl -sS -w "%{http_code}" -o /tmp/ready.out http://localhost:8000/ready' || true
+
+      - name: Save logs and artifacts
+        run: |
+          docker logs foip_smoke_ci > foip_smoke_ci.log || true
+          docker exec foip_smoke_ci bash -lc 'cat /tmp/metrics.out || true' >> foip_smoke_ci.log || true
+          docker exec foip_smoke_ci bash -lc 'cat /tmp/ready.out || true' >> foip_smoke_ci.log || true
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: foip-smoke-logs
+          path: foip_smoke_ci.log
+
+      - name: Cleanup
+        run: |
+          docker rm -f foip_smoke_ci || true
