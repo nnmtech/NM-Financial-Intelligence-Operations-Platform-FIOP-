@@ -29,6 +29,9 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from contextlib import asynccontextmanager
 from typing import Any
 
+# Enable smoke-mode fallbacks when SMOKE_MODE env var is set (1/true/yes)
+SMOKE_MODE = str(os.environ.get("SMOKE_MODE", "")).strip().lower() in ("1", "true", "yes")
+
 def format_trace_id(trace_id_int: int) -> str:
     try:
         return format(trace_id_int, '032x')
@@ -46,48 +49,186 @@ except Exception:
 # Prefer local absolute imports; provide minimal fallbacks for tests/top-level runs
 try:
     from foip.finscan_maker_core import MAKEROrchestrator
-except Exception:
-    MAKEROrchestrator: Any = object
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class MAKEROrchestrator:
+            def __init__(self, worm_storage: Any = None, cost_calculator: Any = None, invariant_checker: Any = None):
+                self.worm_storage = worm_storage
+                self.cost_calculator = cost_calculator
+                self.invariant_checker = invariant_checker
+                self.agents: list = []
+
+            def register_agent(self, agent: Any) -> None:
+                self.agents.append(agent)
+
+            async def start_run(self, *args, **kwargs) -> str:
+                # Return a generated run id for smoke tests
+                return str(uuid4())
+            
+            async def execute_run(self, run_id: str, *args, **kwargs) -> dict:
+                # Dummy execution: return a simple success context object with .errors attribute
+                class _RunContext:
+                    def __init__(self, run_id: str, errors: list | None = None):
+                        self.run_id = run_id
+                        self.errors = errors or []
+
+                return _RunContext(run_id=run_id, errors=[])
+    else:
+        raise _import_err
 
 try:
     from foip.finscan_sec_ingestor import SECIngestionAgent, SECIngestor
-except Exception:
-    SECIngestor: Any = type("SECIngestor", (), {})
-    SECIngestionAgent: Any = type("SECIngestionAgent", (), {})
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class SECIngestor:
+            def __init__(self, api_key: str | None = None, entity_registry: Any = None, **kwargs):
+                self.api_key = api_key
+                self.entity_registry = entity_registry
+
+            async def ingest(self, *args, **kwargs):
+                return None
+
+        class SECIngestionAgent:
+            def __init__(self, ingestor: Any):
+                self.ingestor = ingestor
+
+            async def run(self, *args, **kwargs):
+                return None
+    else:
+        raise _import_err
 
 try:
     from foip.operations_reconciliation_core import (
         BankReconciliationAgent,
         BankReconciliationEngine,
     )
-except Exception:
-    BankReconciliationAgent: Any = object
-    BankReconciliationEngine: Any = object
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class BankReconciliationAgent:
+            def __init__(self, engine: Any = None, **kwargs):
+                self.engine = engine
+
+        class BankReconciliationEngine:
+            def __init__(self, *args, **kwargs):
+                # Accept any init args for smoke tests; real implementation provided in prod
+                pass
+    else:
+        raise _import_err
 
 try:
     from foip.operations_reconciliation_matchers import FuzzyTransactionMatcher
-except Exception:
-    FuzzyTransactionMatcher: Any = type("FuzzyTransactionMatcher", (), {})
+except Exception as _import_err:
+    if SMOKE_MODE:
+        FuzzyTransactionMatcher: Any = type("FuzzyTransactionMatcher", (), {})
+    else:
+        raise _import_err
+
+# Minimal mock bank connector used for smoke tests when real bank
+# integration is not available. Provides a simple interface expected
+# by the reconciliation engine.
+class MockBankConnector:
+    def __init__(self):
+        self.name = "mock_bank_connector"
+
+    async def fetch_transactions(self, account_id: str, since: Any = None) -> list:
+        # Return an empty list for smoke tests
+        return []
 
 try:
     from foip.shared_cost_calculator import CostCalculator
-except Exception:
-    CostCalculator: Any = type("CostCalculator", (), {})
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class CostCalculator:
+            def __init__(self, config: dict | None = None):
+                self.config = config or {}
+
+            async def validate_run_cost(self, run_type: str, estimated_cost: float) -> bool:
+                # Allow all smoke-test runs by default
+                return True
+
+            async def record_run_cost(self, run_id: str, actual_cost: float) -> None:
+                return None
+    else:
+        raise _import_err
 
 try:
     from foip.shared_metadata_registry import EntityRegistry
-except Exception:
-    EntityRegistry: Any = object
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class EntityRegistry:
+            def __init__(self, db: Any = None, **kwargs):
+                self.db = db
+
+            async def register(self, *args, **kwargs):
+                return None
+
+            async def get(self, *args, **kwargs):
+                return None
+    else:
+        raise _import_err
 
 try:
     from foip.storage.postgres import DatabaseConnection
-except Exception:
-    DatabaseConnection: Any = object
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class DatabaseConnection:
+            def __init__(self, database_url: str | None = None, **kwargs):
+                self.database_url = database_url
+                self._connected = False
+
+            async def init_pool(self):
+                self._connected = True
+
+            async def create_pool(self):
+                self._connected = True
+
+            async def connect_pool(self):
+                self._connected = True
+
+            async def connect(self):
+                self._connected = True
+
+            async def close(self):
+                self._connected = False
+
+            @asynccontextmanager
+            async def transaction(self):
+                class _Conn:
+                    async def execute(self, *args, **kwargs):
+                        return None
+
+                conn = _Conn()
+                try:
+                    yield conn
+                finally:
+                    pass
+    else:
+        raise _import_err
 
 try:
     from foip.shared_storage_worm import WORMStorage
-except Exception:
-    WORMStorage: Any = object
+except Exception as _import_err:
+    if SMOKE_MODE:
+        class WORMStorage:
+            def __init__(self, base_path: Path | str, **kwargs):
+                self.base_path = Path(base_path)
+                try:
+                    self.base_path.mkdir(parents=True, exist_ok=True)
+                except Exception:
+                    pass
+
+            async def write(self, name: str, data: bytes | str):
+                p = self.base_path / name
+                mode = 'wb' if isinstance(data, (bytes, bytearray)) else 'w'
+                with open(p, mode) as f:
+                    f.write(data)
+
+            async def read(self, name: str) -> bytes | str:
+                p = self.base_path / name
+                with open(p, 'rb') as f:
+                    return f.read()
+    else:
+        raise _import_err
 
 # Configure logging
 structlog.configure(
@@ -650,8 +791,33 @@ class FIOPPlatform:
 
             app = FastAPI(lifespan=_lifespan)
 
+            # Ensure Request is imported before defining routes so FastAPI
+            # recognizes the `request` parameter as an injected `Request` object
+            from fastapi import Request
+
             @app.get("/health")
-            async def health():
+            async def health(request: Request):
+                # Health endpoint with optional allowlist and bearer token protection.
+                def _is_allowed_health_request(addr: str, headers) -> bool:
+                    allowlist = os.environ.get("HEALTH_ALLOWLIST", os.environ.get("METRICS_ALLOWLIST", "127.0.0.1,::1")).split(",")
+                    allowlist = [a.strip() for a in allowlist if a.strip()]
+                    if addr and addr in allowlist:
+                        return True
+                    token = os.environ.get("HEALTH_BEARER_TOKEN")
+                    if token:
+                        auth = headers.get("authorization") or headers.get("Authorization")
+                        if auth and auth.lower().startswith("bearer "):
+                            if auth.split(None, 1)[1].strip() == token:
+                                return True
+                    return False
+
+                peer = request.client.host if getattr(request, "client", None) else None
+                if not _is_allowed_health_request(peer, request.headers):
+                    # Hide health info if not allowed
+                    from fastapi import Response as FastAPIResponse
+
+                    return FastAPIResponse(status_code=403, content=b"Forbidden")
+
                 uptime = None
                 try:
                     started = getattr(self, "_started_at", None)
@@ -748,6 +914,24 @@ class FIOPPlatform:
         app = web.Application()
 
         async def health(request: web.Request) -> web.Response:
+            # Allowlist + bearer token check for the aiohttp health endpoint
+            def _is_allowed_health_request_aio(peer: str, headers) -> bool:
+                allowlist = os.environ.get("HEALTH_ALLOWLIST", os.environ.get("METRICS_ALLOWLIST", "127.0.0.1,::1")).split(",")
+                allowlist = [a.strip() for a in allowlist if a.strip()]
+                if peer and peer in allowlist:
+                    return True
+                token = os.environ.get("HEALTH_BEARER_TOKEN")
+                if token:
+                    auth = headers.get("authorization") or headers.get("Authorization")
+                    if auth and auth.lower().startswith("bearer "):
+                        if auth.split(None, 1)[1].strip() == token:
+                            return True
+                return False
+
+            peer = request.remote
+            if not _is_allowed_health_request_aio(peer, request.headers):
+                return web.Response(status=403, text="Forbidden")
+
             uptime = None
             try:
                 started = getattr(self, "_started_at", None)
@@ -814,11 +998,30 @@ class FIOPPlatform:
 
 async def main():
     """Main entry point"""
-    # Load configuration
+    # Use the central secrets helper for file-backed secrets and DATABASE_URL construction
+    try:
+        from foip.secrets import read_secret, construct_database_url
+    except Exception:
+        # Fallback to local simple implementation
+        def read_secret(name: str) -> Optional[str]:
+            file_path = os.environ.get(f"{name}_FILE")
+            if file_path:
+                try:
+                    p = Path(file_path)
+                    if p.exists():
+                        return p.read_text().strip()
+                except Exception:
+                    pass
+            return os.environ.get(name)
+
+        def construct_database_url() -> Optional[str]:
+            return os.environ.get("DATABASE_URL")
+
+    # Load configuration (prefer environment and file-backed secrets)
     config = {
-        "database_url": "postgresql://user:password@localhost/fiop",
-        "worm_storage_path": "./data/worm",
-        "sec_api_key": "your_sec_api_key_here",
+        "database_url": construct_database_url() or "postgresql://user:password@localhost/fiop",
+        "worm_storage_path": os.environ.get("WORM_STORAGE_PATH", "./data/worm"),
+        "sec_api_key": read_secret("SEC_API_KEY") or "your_sec_api_key_here",
         "cost_limits": {"max_per_run": 0.50, "daily_limit": 5.00},
         "initial_companies": [
             {"ticker": "AAPL", "name": "Apple Inc."},
