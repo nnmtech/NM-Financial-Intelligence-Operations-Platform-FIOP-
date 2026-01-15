@@ -1,0 +1,89 @@
+name: CI Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t foip:ci-integ -f Dockerfile .
+
+      - name: Create network
+        run: |
+          docker network create ci_net || true
+
+      - name: Start Postgres
+        run: |
+          docker run -d --name ci_postgres --network ci_net -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=fiop postgres:15-alpine
+
+      - name: Start Redis
+        run: |
+          docker run -d --name ci_redis --network ci_net redis:7-alpine
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            docker run --rm --network ci_net postgres:15-alpine pg_isready -h ci_postgres -p 5432 && break || sleep 2
+          done
+
+      - name: Wait for Redis
+        run: |
+          for i in $(seq 1 30); do
+            docker run --rm --network ci_net redis:7-alpine redis-cli -h ci_redis ping | grep -q PONG && break || sleep 1
+          done
+
+      - name: Run app container
+        run: |
+          docker run --name foip_integ --network ci_net -d \
+            -e SMOKE_MODE=1 \
+            -e HEALTH_BEARER_TOKEN=smoketok \
+            -e METRICS_BEARER_TOKEN=smoketok \
+            -e REDIS_HOST=ci_redis \
+            -e DATABASE_URL=postgresql://postgres:postgres@ci_postgres:5432/fiop \
+            foip:ci-integ
+
+      - name: Probe readiness and endpoints
+        run: |
+          set -euo pipefail
+          # wait for /ready up to ~60s
+          for i in $(seq 1 30); do
+            out=$(docker exec foip_integ bash -lc 'curl -sS -w "%{http_code}" -o /tmp/ready.out http://localhost:8000/ready' || true)
+            code=${out: -3}
+            echo "ready attempt $i code=$code"
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker exec foip_integ bash -lc 'curl -sS -H "Authorization: Bearer smoketok" -w "%{http_code}" -o /tmp/health.out http://localhost:8000/health' || true
+          docker exec foip_integ bash -lc 'curl -sS -H "Authorization: Bearer smoketok" -w "%{http_code}" -o /tmp/metrics.out http://localhost:8000/metrics' || true
+
+      - name: Save logs
+        run: |
+          docker logs foip_integ > foip_integ.log || true
+          docker exec foip_integ bash -lc 'cat /tmp/ready.out || true' >> foip_integ.log || true
+          docker exec foip_integ bash -lc 'cat /tmp/health.out || true' >> foip_integ.log || true
+          docker exec foip_integ bash -lc 'head -n 50 /tmp/metrics.out || true' >> foip_integ.log || true
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: foip-integration-logs
+          path: foip_integ.log
+
+      - name: Cleanup
+        run: |
+          docker rm -f foip_integ || true
+          docker rm -f ci_postgres || true
+          docker rm -f ci_redis || true
+          docker network rm ci_net || true
