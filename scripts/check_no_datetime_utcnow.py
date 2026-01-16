@@ -19,6 +19,9 @@ def scan(root: Path) -> int:
             for part in p.parts
         ):
             continue
+        # Skip the checker script itself (and any copies) to avoid self-reporting
+        if p.name == Path(__file__).name:
+            continue
         try:
             text = p.read_text(encoding="utf8")
         except Exception:
