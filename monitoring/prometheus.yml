@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'fiop-platform'
+    static_configs:
+      - targets: ['fiop-platform:8000']
+    metrics_path: /metrics
+    scheme: http
+    # Use bearer token file provided via Docker secret mounted at /run/secrets/metrics_bearer_token
+    bearer_token_file: /run/secrets/metrics_bearer_token
