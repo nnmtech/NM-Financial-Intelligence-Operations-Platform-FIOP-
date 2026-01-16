@@ -16,3 +16,4 @@ FOIP_backup_v1.passphrase
 FOIP_backup_v1.tar.gz
 FOIP_backup_v1.tar.gz*
 .env
+backups/
