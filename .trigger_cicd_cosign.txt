@@ -1,0 +1,5 @@
+Trigger CI workflow to produce cosign.pub
+Timestamp: 2026-01-15T00:00:00Z
+
+This file was added to trigger the GitHub Actions workflow that builds,
+scans, and signs images. Remove after PR is processed.# retrigger

@@ -1,0 +1,185 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fiop}
+      POSTGRES_USER: ${POSTGRES_USER:-fiop_user}
+      # Require file-backed secret for Postgres password in production.
+      # CI / deployment must provide a Docker secret mounted at /run/secrets/postgres_password
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-/run/secrets/postgres_password}
+    # Do not publish Postgres to the host by default; keep it internal to the compose network.
+    # If you need host access for debugging, temporarily add a port mapping or use psql via the network.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Mount a directory with initialization scripts into the container's init directory.
+      # Use a directory (e.g. ./docker/postgres/initdb) containing any .sql/.sh init files.
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+      # For local development, mount the host secret file into the container so
+      # Postgres can read /run/secrets/postgres_password without requiring swarm.
+      - ./secrets/postgres_password:/run/secrets/postgres_password:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fiop_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    # Keep Redis internal to the compose network by default (avoid host port conflicts).
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  fiop-platform:
+    # Use an explicit, immutable image tag in production. CI should set `IMAGE_TAG` to e.g. foip:prod-<sha>.
+    image: ${IMAGE_TAG:-foip:prod}
+    # Use a pre-built image only. CI should set `IMAGE_TAG` to the desired image.
+    # To rebuild locally run: `docker compose build fiop-platform` (not automatic on Start).
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      PYTHONPATH: /app/src
+      # Prefer file-backed secret pattern. The application will prefer POSTGRES_PASSWORD_FILE
+      # over POSTGRES_PASSWORD when constructing the DATABASE_URL at runtime.
+      POSTGRES_DB: ${POSTGRES_DB:-fiop}
+      POSTGRES_USER: ${POSTGRES_USER:-fiop_user}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-/run/secrets/postgres_password}
+      REDIS_URL: redis://redis:6379/0
+      SEC_API_KEY_FILE: ${SEC_API_KEY_FILE:-/run/secrets/sec_api_key}
+      WORM_STORAGE_PATH: /app/data/worm
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Health & Metrics security: production MUST supply token files via Docker secrets.
+      # The application prefers *_FILE patterns and will read tokens from /run/secrets.
+      HEALTH_BEARER_TOKEN_FILE: ${HEALTH_BEARER_TOKEN_FILE:-/run/secrets/health_bearer_token}
+      HEALTH_ALLOWLIST: ${HEALTH_ALLOWLIST:-127.0.0.1,::1}
+      METRICS_BEARER_TOKEN_FILE: ${METRICS_BEARER_TOKEN_FILE:-/run/secrets/metrics_bearer_token}
+      METRICS_ALLOWLIST: ${METRICS_ALLOWLIST:-127.0.0.1,::1}
+      # Sentry DSN (optional). Set SENTRY_DSN via secrets in production.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # OpenTelemetry / Tracing
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-foip}
+      # Enable SMOKE_MODE for local/testing only via env (do NOT set in production).
+      SMOKE_MODE: ${SMOKE_MODE:-}
+    volumes:
+      - ./:/app:ro
+      - fiop_logs:/app/logs
+      - ./data:/app/data
+    # Expose the application only on localhost on a non-conflicting high port for local testing.
+    ports:
+      - "127.0.0.1:18090:8000"
+    working_dir: /app
+    user: "1000:1000"
+    restart: unless-stopped
+    healthcheck:
+      # Readiness probe: fast check against `/ready` (keeps checks cheap).
+      # Reads bearer token from the Docker secret file mounted at /run/secrets/health_bearer_token.
+      # Escape all "$" as "$$" so docker-compose does not attempt variable interpolation.
+      test: ["CMD-SHELL", "sh -c 'TOKEN=$$(cat /run/secrets/health_bearer_token 2>/dev/null || echo); \\\ \
+          curl -fsS -m 2 -H \"Authorization: Bearer $$TOKEN\" http://127.0.0.1:8000/ready || exit 1'"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+    secrets:
+      - postgres_password
+      - sec_api_key
+      - health_bearer_token
+      - metrics_bearer_token
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+    ports:
+      - "127.0.0.1:9091:9090"
+    secrets:
+      - metrics_bearer_token
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  fiop_logs:
+
+networks:
+  default:
+    driver: bridge
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  sec_api_key:
+    file: ./secrets/sec_api_key
+  health_bearer_token:
+    file: ./secrets/health_bearer_token
+  metrics_bearer_token:
+    file: ./secrets/metrics_bearer_token
+
+# Notes:
+# - Provide secrets via environment variables or a Docker secrets manager. Do NOT commit
+#   real secrets in the compose file. Example `.env` should set POSTGRES_PASSWORD and SEC_API_KEY.
+# - The service uses a non-root `user: "1000:1000"` inside the container; ensure image has that uid.
+# - Healthcheck guidance:
+#   - The `fiop-platform` service already exposes a readiness endpoint at `/ready` and
+#     the healthcheck uses that endpoint (fast readiness probe). For production, prefer
+#     separating liveness vs readiness and keep readiness cheap and fast.
+#
+#   - Example: readiness + metrics probe (replace token handling as appropriate):
+#
+#     healthcheck:
+#       test: ["CMD-SHELL", "sh -c 'TOKEN=$(cat /run/secrets/health_bearer_token 2>/dev/null || echo); \
+#         curl -fsS -m 2 -H \"Authorization: Bearer $TOKEN\" http://127.0.0.1:8000/ready || exit 1'"]
+#       interval: 30s
+#       timeout: 3s
+#       retries: 5
+#       start_period: 60s
+#
+#     # Optional metrics access check (use sparingly to avoid load on metrics endpoint):
+#     # test: ["CMD-SHELL", "sh -c 'curl -fsS -m 2 -H \"Authorization: Bearer $TOKEN\" http://127.0.0.1:8000/metrics || exit 1'"]
+#

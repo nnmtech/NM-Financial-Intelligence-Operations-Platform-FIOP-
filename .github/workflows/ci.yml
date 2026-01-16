@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.10, 3.11, 3.12, 3.13]
+        python-version: ['3.10', '3.11', '3.12', '3.13']
 
     steps:
       - name: Checkout
@@ -81,6 +81,9 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Install the package into the venv so tests can import the `foip` package
+          # Prefer dev extras if defined; fall back to editable install.
+          pip install -e ".[dev]" || pip install -e .
 
       - name: Run tests
         run: |
