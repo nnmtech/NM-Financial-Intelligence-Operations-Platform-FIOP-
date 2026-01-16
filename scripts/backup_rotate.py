@@ -15,7 +15,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List
 
@@ -93,7 +93,8 @@ def create_encrypted_backup(root: Path, out_dir: Path, *, keep: int = 7, do_encr
     Returns metadata dict describing outcome.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    # Use timezone-aware UTC timestamp for filenames
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     tar_name = f"FOIP_backup_{timestamp}.tar.gz"
     tar_path = out_dir / tar_name
 

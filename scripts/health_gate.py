@@ -17,7 +17,7 @@ import os
 import shlex
 import subprocess
 import attr
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -58,7 +58,9 @@ def run_checks() -> Dict[str, object]:
     # 3) smoke import
     results.append(run_cmd("python -c \"import foip; print('ok')\""))
 
-    summary = {"timestamp": datetime.utcnow().isoformat() + "Z", "results": [r.as_dict() for r in results]}
+    # Use timezone-aware UTC timestamp
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    summary = {"timestamp": timestamp, "results": [r.as_dict() for r in results]}
     return summary
 
 
