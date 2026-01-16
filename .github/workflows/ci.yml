@@ -81,6 +81,9 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Install the package into the venv so tests can import the `foip` package
+          # Prefer dev extras if defined; fall back to editable install.
+          pip install -e ".[dev]" || pip install -e .
 
       - name: Run tests
         run: |
