@@ -6,6 +6,7 @@ repos:
         entry: python3 scripts/check_no_datetime_utcnow.py
         language: system
         files: \.(py)$
+        exclude: '(^scripts/check_no_datetime_utcnow.py$|^backup_v1/scripts/check_no_datetime_utcnow.py$)'
         stages: [commit, push]
       - id: require-attr-asdict-register-entity
         name: Require attr.asdict() on register_entity payloads
