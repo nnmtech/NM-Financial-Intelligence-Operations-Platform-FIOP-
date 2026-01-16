@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.11, 3.12]
+        python-version: ['3.11', '3.12']
 
     steps:
       - uses: actions/checkout@v4
@@ -39,4 +39,4 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          pytest -q
+          pytest -q --ignore=backup_v1
