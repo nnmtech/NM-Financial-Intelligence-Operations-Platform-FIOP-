@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fiop}
+      POSTGRES_USER: ${POSTGRES_USER:-fiop_user}
+      # Prefer file-backed secret: POSTGRES_PASSWORD_FILE. Fall back to POSTGRES_PASSWORD if provided.
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-/run/secrets/postgres_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fiop_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  fiop-platform:
+    image: foip:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      PYTHONPATH: /app/src
+      # Prefer file-backed secret pattern. The application will prefer POSTGRES_PASSWORD_FILE
+      # over POSTGRES_PASSWORD when constructing the DATABASE_URL at runtime.
+      POSTGRES_DB: ${POSTGRES_DB:-fiop}
+      POSTGRES_USER: ${POSTGRES_USER:-fiop_user}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-/run/secrets/postgres_password}
+      REDIS_URL: redis://redis:6379/0
+      SEC_API_KEY_FILE: ${SEC_API_KEY_FILE:-/run/secrets/sec_api_key}
+      WORM_STORAGE_PATH: /app/data/worm
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Health & Metrics security: set strong tokens and restrict allowlists in production
+      HEALTH_BEARER_TOKEN: ${HEALTH_BEARER_TOKEN:-}
+      HEALTH_ALLOWLIST: ${HEALTH_ALLOWLIST:-127.0.0.1,::1}
+      METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:-}
+      METRICS_ALLOWLIST: ${METRICS_ALLOWLIST:-127.0.0.1,::1}
+      # OpenTelemetry / Tracing
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-foip}
+    volumes:
+      - ./:/app:ro
+      - fiop_logs:/app/logs
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    working_dir: /app
+    user: "1000:1000"
+    command: ["python", "-m", "src.main"]
+    restart: unless-stopped
+    healthcheck:
+      # Use an HTTP readiness probe against the application's `/health` endpoint.
+      # Supports optional bearer token via `HEALTH_BEARER_TOKEN` env var.
+      test: ["CMD-SHELL", "python -c \"import os,sys,urllib.request; req=urllib.request.Request('http://127.0.0.1:8000/health'); t=os.environ.get('HEALTH_BEARER_TOKEN');\
+    if t: req.add_header('Authorization','Bearer '+t);\
+    try: r=urllib.request.urlopen(req, timeout=3); sys.exit(0 if getattr(r, 'status', None)==200 else 1)\
+    except: sys.exit(1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+    secrets:
+      - postgres_password
+      - sec_api_key
+
+volumes:
+  postgres_data:
+  redis_data:
+  fiop_logs:
+
+networks:
+  default:
+    driver: bridge
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  sec_api_key:
+    file: ./secrets/sec_api_key
+
+# Notes:
+# - Provide secrets via environment variables or a Docker secrets manager. Do NOT commit
+#   real secrets in the compose file. Example `.env` should set POSTGRES_PASSWORD and SEC_API_KEY.
+# - The service uses a non-root `user: "1000:1000"` inside the container; ensure image has that uid.
+# - Healthcheck uses a simple TCP probe; consider adding an HTTP `/health` endpoint and adjusting the check.
